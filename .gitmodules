@@ -1,0 +1,3 @@
+[submodule "MC"]
+	path = MC
+	url = git@github.com:hash-bang/MCPerl.git
