@@ -1,0 +1,287 @@
+#!/usr/bin/perl
+# POD {{{
+=head1 NAME
+
+dbconflict - Find all Dropbox conflict files within a directory
+
+=head1 SYNOPSIS
+
+	dbconflict [options]
+
+=over
+	
+=head1 OPTIONS
+
+=over 8
+
+=item B<--dc>
+
+=item B<--diffcmd>
+
+Specify the command used when diffing a conflict.
+
+Variables used in the command can be:
+
+=over
+
+=item B<$base>
+
+The basic file name (and potencial perfect original file) to merge all conflicts into.
+
+=item B<$peer>
+
+The conflict file of the found Dropbox base file.
+
+=back
+
+=item B<-d>
+
+=item B<--delete>
+
+Delete all conflict files (assumes the user has already done a scan with '-l' first).
+
+=item B<--exclude>
+
+=item B<-x>
+
+Exclude a partiqular file or directory from the scan.
+
+This is mainly usedx to exclude Dropbox meta files like .dropbox.cache
+
+=item B<--force>
+
+=item B<-f>
+
+Force attempting to deal with nested conflicts.
+Should a file contain multiple levels of conlict, dbconflicts will not attempt to merge the file unless this flag is specified.
+
+=item B<-l>
+
+=item B<--list>
+
+Display a list of conflicted files but do nothing.
+Implies '-n'.
+
+=item B<-t>
+
+=item B<--temp>
+
+Specify a list of temp files to delete silently during the scanning process.
+
+=item B<-v>
+
+=item B<--verbose>
+
+Be more verbose when outputting information to STDERR.
+Specify multiple times to increase verbosity.
+
+=head1 DESCRIPTION
+
+A command line tool for the manipulation of Dropbox conflict files.
+
+=head1 EXAMPLES
+
+=over
+
+=item B<dbconflicts -l>
+
+List all conflicted files in this directory.
+
+=back
+
+=head1 TODO
+
+	* Detect if file content is binary
+	* Support GUI merging
+
+=head1 BUGS
+
+Quite probably.
+
+Please report to author when found.
+
+=head1 AUTHOR
+
+Matt Carter <m@ttcarter.com>
+
+=cut
+# }}} POD
+
+package dbconflicts;
+our $VERSION = '0.1.0';
+
+# Header {{{
+use Digest::MD5::File qw/file_md5_hex/;
+use File::Basename;
+use File::DirWalk;
+use MC::Input::Cli;
+use IO::Handle;
+use Getopt::Long;
+use Text::Glob qw/match_glob glob_to_regex/;
+Getopt::Long::Configure('bundling', 'ignorecase_always', 'pass_through');
+STDERR->autoflush(1); # } Flush the output DIRECTLY to the output buffer without caching
+STDOUT->autoflush(1); # }
+
+use Data::Dump; # FIXME: Debugging modules
+# }}} Header
+
+our $diffcmd = q/vimdiff '$original' '$conflict'/;
+our $dryrun, $delete;
+our @exclude = qw/.dropbox.cache .dropbox/;
+our @temp = qw/.*.swp/;
+my @count_order = qw/total_files total_dirs conflicts skipped_binaries nested_conflicts missing_base deletes auto_deletes temp_files/;
+our %counts = map { $_ => 0 } @count_order;
+
+my $list, $force;
+GetOptions(
+	# Global options
+	'delete|d' => \$delete,
+	'diffcmd|dc=s' => \$diffcmd,
+	'force|f' => \$force,
+	'list|l' => \$list,
+	'dryrun|n' => \$dryrun,
+	'temp|t=s'=> \@temp,
+	'verbose|v+' => \$verbose,
+	'exclude|x=s' => \@exclude,
+);
+$dryrun = 1 if $list;
+
+@temp = map { $_ = glob_to_regex($_) } @temp; # Convert text globs to RegExps
+
+my $walker = new File::DirWalk;
+$walker->onFile(sub {
+	my ($_) = @_;
+	our $delete;
+	our %conflicts, @temp, %counts;
+	my $base, $box, $date, $suffix;
+
+	$counts{total_files}++;
+
+	foreach my $glob (@temp) {
+		my $dir = dirname($_);
+		$_ = basename($_);
+		if (m/$glob/i) {
+			say(0, "$dir/$_") if $list;
+			unlink("$dir/$_") unless $dryrun;
+			$counts{temp_files}++;
+			return File::DirWalk::SUCCESS;
+		}
+	}
+
+	return File::DirWalk::SUCCESS unless ($base, $box, $date, $suffix) = (m/^(.+?) \((.+?)'s conflicted copy ([0-9-]{10})(?: \([0-9]+\))?\)(.*)$/);
+	$base = $base . $suffix;
+	say(3, "Found conflict file: $base");
+	if (!$force and $base =~ /conflicted copy/) {
+		say(0, "Too many layers of conflict for file: '$base' - Use '-f' to force merging.");
+		$counts{nested_conflicts}++;
+		return File::DirWalk::SUCCESS;
+	}
+	unless (-e $base) {
+		$counts{missing_base}++;
+		say(1, "Base file missing for conflict '$_' - expecting base '$base'");
+		return File::DirWalk::SUCCESS;
+	}
+	if (!$delete and (-B $base or -B $peer)) {
+		$counts{skipped_binaries}++;
+		say(1, "Binary file: $base. Skipping");
+		return File::DirWalk::SUCCESS;
+	}
+	if ($delete) { 
+		say(1, "Delete conflict: $_");
+		$counts{deletes}++;
+		unlink($_) unless $dryrun;
+		return File::DirWalk::SUCCESS;
+	}
+	$counts{conflicts}++;
+	push @{$conflicts{$base}}, $_;
+		
+	return File::DirWalk::SUCCESS;
+});
+$walker->onDirEnter(sub {
+	our @exclude;
+	my $dir = shift;
+	say(2, "Scanning dir $dir");
+	$counts{total_dirs}++;
+	$base = basename($dir);
+	if (grep { $_ eq $base } @exclude) {
+		say("Exclude: $dir");
+		return File::DirWalk::PRUNE;
+	}
+	return File::DirWalk::SUCCESS;
+});
+$walker->onDirLeave(sub {
+	our %conflicts;
+	our $diffcmd;
+	our $dryrun;
+	while (my($base, $peers) = each %conflicts) {
+		say(0, $base) if $list;
+		say(1, "Processing conflicts for '$base' (" . scalar(@peers) . " peers)");
+		my $basemd5 = file_md5_hex($base);
+		say(3, "Base MD5 = $basemd5");
+		my @remaining;
+		foreach $peer (@{$peers}) {
+			say(1, "Processing peer '$peer'");
+			my $peermd5 = file_md5_hex($peer);
+			say(3, "Peer '$peer' MD5 = $peermd5");
+			if (!$dryrun and $peermd5 eq $basemd5) {
+				say(1, "Peer '$peer', identical to base file - delete");
+				unlink($peer) unless $dryrun;
+			} else {
+				push @remaining, $peer;
+			}
+		}
+		foreach $peer (@remaining) {
+			eval {
+				# Special shell escape replacements
+				my($original, $conflict) = ($base, $peer);
+				$original =~ s/'/'\\''/g; # FIXME: This is a totally stupid way of escaping shell args
+				$conflict =~ s/'/'\\''/g;
+
+				unless ($dryrun) {
+					say(0, "Merging $base...");
+					my $cmd = eval("return \"$diffcmd\"");
+					say(3, "Will run: $cmd");
+					system($cmd);
+				}
+			};
+			if ($dryrun) {
+				say(1, "Dry run mode. Not running merge");
+			} else { 
+				if ($? == 0) { # Success
+					my $basemd5 = file_md5_hex($base);
+					my $peermd5 = file_md5_hex($peer);
+					say(3, "Recompute MD5 after merge. Base = $basemd5 Peer = $peermd5");
+					if ($basemd5 eq $peermd5) {
+						say(1, "Base and peer are now identical. Deleting peer '$peer'");
+						$counts{auto_deletes}++;
+						unlink($peer) unless $dryrun;
+					} elsif (ask('Delete conflict') eq 'y') {
+						say(1, "Delete '$peer'");
+						$counts{deletes}++;
+						unlink($peer) unless $dryrun;
+					} else {
+						say(1, "Skip delete of '$peer'");
+					}
+				} else {
+					say(1, "Diff error. Skip '$peer'");
+				}
+			}
+		}
+	}
+	%conflicts = ();
+	return File::DirWalk::SUCCESS;
+});
+
+
+@ARGV = qw/./ unless @ARGV; # Default to '.' if no specific dir is requested
+foreach (@ARGV) {
+	say(1, "Scan dir $_");
+	our %conflicts;
+	$walker->walk($_);
+
+	foreach (@count_order) {
+		my $nice_key = ucfirst($_);
+		$nice_key =~ tr/_/ /;
+		say(1, "$nice_key = $counts{$_}") if $counts{$_} > 0;
+	}
+}
