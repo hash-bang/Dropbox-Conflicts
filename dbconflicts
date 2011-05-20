@@ -111,6 +111,7 @@ package dbconflicts;
 our $VERSION = '0.1.0';
 
 # Header {{{
+use feature 'switch';
 use Digest::MD5::File qw/file_md5_hex/;
 use File::Basename;
 use File::DirWalk;
@@ -216,55 +217,69 @@ $walker->onDirLeave(sub {
 	while (my($base, $peers) = each %conflicts) {
 		say(0, $base) if $list;
 		say(1, "Processing conflicts for '$base' (" . scalar(@peers) . " peers)");
-		my $basemd5 = file_md5_hex($base);
-		say(3, "Base MD5 = $basemd5");
-		my @remaining;
 		foreach $peer (@{$peers}) {
-			say(1, "Processing peer '$peer'");
+			my $basemd5 = file_md5_hex($base);
 			my $peermd5 = file_md5_hex($peer);
-			say(3, "Peer '$peer' MD5 = $peermd5");
-			if (!$dryrun and $peermd5 eq $basemd5) {
-				say(1, "Peer '$peer', identical to base file - delete");
-				unlink($peer) unless $dryrun;
-			} else {
-				push @remaining, $peer;
+			say(3, "MD5 compute. Base = $basemd5 Peer = $peermd5");
+			if ($basemd5 eq $peermd5) {
+				say(1, "Base and peer are identical. Deleting peer '$peer'");
+				$counts{auto_deletes}++;
+				unlink($peer);
+				next;
 			}
-		}
-		foreach $peer (@remaining) {
-			eval {
-				# Special shell escape replacements
-				my($original, $conflict) = ($base, $peer);
-				$original =~ s/'/'\\''/g; # FIXME: This is a totally stupid way of escaping shell args
-				$conflict =~ s/'/'\\''/g;
 
-				unless ($dryrun) {
-					say(0, "Merging $base...");
-					my $cmd = eval("return \"$diffcmd\"");
-					say(3, "Will run: $cmd");
-					system($cmd);
-				}
-			};
 			if ($dryrun) {
-				say(1, "Dry run mode. Not running merge");
-			} else { 
-				if ($? == 0) { # Success
-					my $basemd5 = file_md5_hex($base);
-					my $peermd5 = file_md5_hex($peer);
-					say(3, "Recompute MD5 after merge. Base = $basemd5 Peer = $peermd5");
-					if ($basemd5 eq $peermd5) {
-						say(1, "Base and peer are now identical. Deleting peer '$peer'");
-						$counts{auto_deletes}++;
-						unlink($peer) unless $dryrun;
-					} elsif (ask('Delete conflict') eq 'y') {
-						say(1, "Delete '$peer'");
-						$counts{deletes}++;
-						unlink($peer) unless $dryrun;
-					} else {
-						say(1, "Skip delete of '$peer'");
+				say(1, "Dry run mode. Not doing anything");
+			} else { # Not in dry run
+				say(0, "File    : $base");
+				say(0, "Conflict: $peer");
+				say(0, "Diff:");
+				say(0);
+				say(0, system('diff', '-y', '--suppress-common-lines', $base, $peer));
+				say(0);
+				given (ask('Command', '/', qw/< > v e s \/ d ?/)) {
+					when ('?') { # Show help
+						say(0, <DATA>);
+						redo;
 					}
-				} else {
-					say(1, "Diff error. Skip '$peer'");
+					when (/</) { # Use left
+						unlink($peer);
+					}
+					when (/>/) { # Use right
+						unlink($base);
+						rename($peer, $base);
+					}
+					when ('d') { # Delete both
+						unlink($base);
+						unlink($peer);
+					}
+					when (m!s|/!) {
+						next;
+					}
+					when (/v|e/) {
+						eval { # Calculate merge command
+							# Special shell escape replacements
+							my($original, $conflict) = ($base, $peer);
+							$original =~ s/'/'\\''/g; # FIXME: This is a totally stupid way of escaping shell args
+							$conflict =~ s/'/'\\''/g;
+	
+							unless ($dryrun) {
+								my $cmd = eval("return \"$diffcmd\"");
+								say(3, "Merge - Exec: $cmd");
+								system($cmd);
+								say(1, "Finished merge operation");
+								say(0);
+								redo;
+							}
+						};
+						if ($? != 0) {
+							say(1, "Diff error. Skip '$peer'");
+							next;
+						}
+					}
+					default { redo }
 				}
+				say(0);
 			}
 		}
 	}
@@ -285,3 +300,13 @@ foreach (@ARGV) {
 		say(1, "$nice_key = $counts{$_}") if $counts{$_} > 0;
 	}
 }
+
+# Data contains help screen
+__DATA__
+COMMAND HELP
+?	Help		Display this help screen
+<	Use Left	Use file on left (original base name)
+>	Use Right	Use file on right (conflicting name)
+v,e	Editor		Show in editor
+/,s	Skip		Move onto next file
+d	Delete both	Delete both the left and right files
