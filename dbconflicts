@@ -14,11 +14,15 @@ dbconflict - Find all Dropbox conflict files within a directory
 
 =over 8
 
-=item B<--dc>
+=item B<--dp>
 
-=item B<--diffcmd>
+=item B<--diffpreview>
 
-Specify the command used when diffing a conflict.
+Specify the method used when showing the file diffs.
+
+Valid methods;
+	* Auto - Will run though the below in order and use the first valid method
+	* Diff - Use the standard 'diff' program
 
 Variables used in the command can be:
 
@@ -131,6 +135,8 @@ our $dryrun, $delete;
 our @exclude = qw/.dropbox.cache .dropbox/;
 our @temp = qw/.*.swp/;
 my @count_order = qw/total_files total_dirs conflicts skipped_binaries nested_conflicts missing_base deletes auto_deletes temp_files/;
+my $diffpreview = 'auto';
+my @diffpreview;
 our %counts = map { $_ => 0 } @count_order;
 
 my $list, $force;
@@ -139,6 +145,7 @@ GetOptions(
 	'delete|d' => \$delete,
 	'diffcmd|dc=s' => \$diffcmd,
 	'force|f' => \$force,
+	'diffpreview|dp=s' => \$diffpreview,
 	'list|l' => \$list,
 	'dryrun|n' => \$dryrun,
 	'temp|t=s'=> \@temp,
@@ -146,6 +153,16 @@ GetOptions(
 	'exclude|x=s' => \@exclude,
 );
 $dryrun = 1 if $list;
+if ($diffpreview eq 'auto') { # Determine -diffpreview from first one that matches
+	if (-x '/usr/bin/docdiffxxx') {
+		$diffpreview = q/docdiff -y --suppress-common-lines %BASE %PEER/;
+	} elsif (-x '/usr/bin/diff') {
+		$diffpreview = q/diff -y --suppress-common-lines %BASE %PEER/;
+	} else {
+		$diffpreview = q/echo 'No diff previewer installed'/;
+	}
+}
+say(2, "Using --diffpreview: $diffpreview");
 
 @temp = map { $_ = glob_to_regex($_) } @temp; # Convert text globs to RegExps
 
@@ -235,7 +252,11 @@ $walker->onDirLeave(sub {
 				say(0, "Conflict: $peer");
 				say(0, "Diff:");
 				say(0);
-				say(0, system('diff', '-y', '--suppress-common-lines', $base, $peer));
+				my $_ = $diffpreview;
+				s/%BASE/\Q$base\E/g;
+				s/%PEER/\Q$peer\E/g;
+				say(2, "Diff preview cmd: $_");
+				say(0, system($_));
 				say(0);
 				given (ask('Command', '/', qw/< > v e s \/ d ?/)) {
 					when ('?') { # Show help
