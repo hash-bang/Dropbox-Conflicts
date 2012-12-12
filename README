@@ -1,0 +1,85 @@
+NAME
+    dbc - Find all Dropbox conflict files within a directory and handle them
+    inteligently
+
+SYNOPSIS
+            dbc [options]
+
+            This program locates all files labeled as conflicting by Dropbox and tries to apply inteligent rules to handle them.
+            If the files conflict in a way that cannot be resolved the user is shown a diff and asked to fix the changes.
+
+OPTIONS
+    --dp
+    --diffpreview
+            Specify the method used when showing the file diffs.
+
+            Valid methods; * Auto - Will run though the below in order and
+            use the first valid method * Diff - Use the standard 'diff'
+            program
+
+            Variables used in the command can be:
+
+            $base
+                The basic file name (and potencial perfect original file) to
+                merge all conflicts into.
+
+            $peer
+                The conflict file of the found Dropbox base file.
+
+    -d
+    --delete
+            Delete all conflict files (assumes the user has already done a
+            scan with '-l' first).
+
+    --exclude
+    -x      Exclude a partiqular file or directory from the scan.
+
+            This is mainly usedx to exclude Dropbox meta files like
+            .dropbox.cache
+
+    --force
+    -f      Force attempting to deal with nested conflicts. Should a file
+            contain multiple levels of conlict, dbconflicts will not attempt
+            to merge the file unless this flag is specified.
+
+    -l
+    --list  Display a list of conflicted files but do nothing. Implies '-n'.
+
+    -t
+    --temp  Specify a list of temp files to delete silently during the
+            scanning process.
+
+    -v
+    --verbose
+            Be more verbose when outputting information to STDERR. Specify
+            multiple times to increase verbosity.
+
+DESCRIPTION
+    A command line tool for the manipulation of Dropbox conflict files.
+
+EXAMPLES
+    dbconflicts -l
+        List all conflicted files in this directory.
+
+TODO
+            * Detect if file content is binary
+            * Support GUI merging
+
+BUGS
+    Quite probably.
+
+    Please report to author when found.
+
+AUTHOR
+    Matt Carter <m@ttcarter.com>
+
+POD ERRORS
+    Hey! The above document had some coding errors, which are explained
+    below:
+
+    Around line 16:
+        You forgot a '=back' before '=head1'
+
+    Around line 85:
+        You forgot a '=back' before '=head1'
+
