@@ -1,11 +1,11 @@
 NAME
     dbc - Find all Dropbox conflict files within a directory and handle them
-    inteligently
+    intelligently
 
 SYNOPSIS
             dbc [options]
 
-            This program locates all files labeled as conflicting by Dropbox and tries to apply inteligent rules to handle them.
+            This program locates all files labeled as conflicting by Dropbox and tries to apply intelligent rules to handle them.
             If the files conflict in a way that cannot be resolved the user is shown a diff and asked to fix the changes.
 
 OPTIONS
@@ -32,14 +32,14 @@ OPTIONS
             scan with '-l' first).
 
     --exclude
-    -x      Exclude a partiqular file or directory from the scan.
+    -x      Exclude a particular file or directory from the scan.
 
             This is mainly usedx to exclude Dropbox meta files like
             .dropbox.cache
 
     --force
     -f      Force attempting to deal with nested conflicts. Should a file
-            contain multiple levels of conlict, dbconflicts will not attempt
+            contain multiple levels of conlict, dbc will not attempt
             to merge the file unless this flag is specified.
 
     -l
