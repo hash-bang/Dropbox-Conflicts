@@ -5,8 +5,8 @@ README: dbc
 	git add README
 	git commit -m 'Auto update from POD'
 
-install:
-	sudo cpan Digest::MD5::File Text::Glob
+install-cpan:
+	sudo cpan Digest::MD5::File Text::Glob Test::Exception File::DirWalk Data::Dump
 
 version:
 	echo "VERSION IS $(VERSION)"
