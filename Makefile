@@ -1,7 +1,7 @@
 VERSION := $(shell perl -MExtUtils::MakeMaker -le 'print MM->parse_version(shift)' dbconflicts)
 
-README: dbconflicts
-	pod2text dbconflicts >README
+README: dbc
+	pod2text dbc >README
 	git add README
 	git commit -m 'Auto update from POD'
 

@@ -2,11 +2,14 @@
 # POD {{{
 =head1 NAME
 
-dbconflict - Find all Dropbox conflict files within a directory
+dbc - Find all Dropbox conflict files within a directory and handle them inteligently
 
 =head1 SYNOPSIS
 
-	dbconflict [options]
+	dbc [options]
+
+	This program locates all files labeled as conflicting by Dropbox and tries to apply inteligent rules to handle them.
+	If the files conflict in a way that cannot be resolved the user is shown a diff and asked to fix the changes.
 
 =over
 	
